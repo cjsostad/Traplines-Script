@@ -12,6 +12,40 @@ Author:  Ozra (Sunny) Rahimi, Evan Breton
 Usage Note:  This script will only work with Temp_Trapline_Master template found here:
 \\spatialfiles.bcgov\Work\srm\nel\Local\Geomatics\Workarea\SharedWork\Trapline_Territories\aprx\Temp_Trapline_Master.aprx
 Version 1.0
+
+Updated by csostad, 2026-02-17
+Refactor trapline map generation script to Python toolbox with improved structure
+
+Major Changes:
+- Convert script from .py to .pyt (ArcGIS Python Toolbox format)
+- Add GSS Request Number as first parameter for better organization
+- Implement dynamic year-based workspace using datetime module
+- Restructure output folders: wildlife/{year}/traplines/{GSS_Request_Number}/{shapefile,maps,kml}
+
+Features Added:
+- Date-stamped PDF filenames: Trapline_{file_num}_{yyyymmdd}.pdf
+- Constants-based configuration for easy maintenance
+- Comprehensive error handling with descriptive messages for missing layers
+- Layer name validation with troubleshooting guidance
+
+Bug Fixes:
+- Fix KML export error (ERROR 000229) by using shapefile directly instead of reopened project layer references
+- Add proper input validation for both parameters
+- Improve error messages to guide users when layers are renamed
+
+Code Quality:
+- Remove duplicate code and unused variables
+- Comment out old folder structure for reference
+- Add proper toolbox class structure with getParameterInfo() and execute() methods
+- Better exception handling throughout with specific error types
+
+Breaking Changes:
+- Parameter order changed: GSS Request Number (0), Trapline Number (1)
+- Folder structure completely reorganized
+- Must be run as Python Toolbox (.pyt) instead of standalone script
+
+
+
 '''
 import arcpy
 import os
