@@ -13,6 +13,7 @@ Version 2.0
 '''
 import arcpy
 import os
+import re
 from datetime import datetime
 
 
@@ -80,7 +81,7 @@ class TraplineMapGenerationTool:
         DEFAULT_SCALE = 250000
         AREA_FIELD = "Area_ha"
         CROWN_LAND_FIELD = "CROWN_LAND"
-        TRAPLINE_FIELD = "TRAPLINE_1"
+        TRAPLINE_FIELD = "TRAPLINE_AREA_IDENTIFIER"
         SQ_METERS_TO_HECTARES = 10000
 
         # Get parameters
@@ -162,6 +163,14 @@ class TraplineMapGenerationTool:
             arcpy.AddError(f"ERROR: Failed to access 'All Trapline Cabins' layer: {e}")
             return
         
+        # Apply permanent definition query to All Trapline Cabins BCGW layer
+        try:
+            cabin_filter = "TENURE_SUBPURPOSE = 'TRAPLINE CABIN'"
+            all_trapline_cabins_obj.definitionQuery = cabin_filter
+            arcpy.AddMessage(f"Applied filter to All Trapline Cabins: {cabin_filter}")
+        except Exception as e:
+            arcpy.AddWarning(f"Could not apply definition query to All Trapline Cabins: {e}")
+        
         # Function to create a directory if it doesn't exist
         def create_directory(directory):
             if not os.path.exists(directory):
@@ -193,28 +202,32 @@ class TraplineMapGenerationTool:
         
         ################################################################################################################################
         #
-        # Step 2 - Create the Application Polygon
+        # Step 2 - Query and Export Trapline Boundary
         #
         #############################################################################################################################
-        arcpy.AddMessage("Step 2 - Creating Application Polygon")
-        # Set the definition query and assign it to a variable
-        expression = f"{arcpy.AddFieldDelimiters(arcpy.env.workspace, TRAPLINE_FIELD)} = '{file_num}'"
-        # Apply the expression to the layer "Application" in the Site Map
-        all_trapline_boundaries_obj.definitionQuery = expression
-        arcpy.AddMessage(f"         Definition query {expression} set for all trapline boundaries")
+        arcpy.AddMessage("Step 2 - Querying Trapline Boundary from BCGW")
         
-        # Error Handling - Use a SearchCursor to count the number of records returned by the definition query
-        count = 0
-        with arcpy.da.SearchCursor(all_trapline_boundaries_obj, "*") as cursor:
-            for row in cursor:
-                count += 1
-                
-        # Check if the count is 0 and display a message if the definition query was successful or not.
+        # Create a temporary layer with definition query (don't modify the original BCGW layer)
+        temp_query_layer = "temp_trapline_query"
+        arcpy.management.MakeFeatureLayer(all_trapline_boundaries_obj, temp_query_layer)
+        
+        # Build simple expression that works with BCGW feature services
+        expression = f"{TRAPLINE_FIELD} = '{file_num}'"
+        arcpy.AddMessage(f"Using expression: {expression}")
+        
+        # Set the definition query on the temporary layer
+        arcpy.management.SelectLayerByAttribute(temp_query_layer, "NEW_SELECTION", expression)
+        
+        # Error Handling - Check if any records were found
+        count = int(arcpy.management.GetCount(temp_query_layer)[0])
+        
         if count == 0:
-            arcpy.AddError(f"ERROR: No records returned by definition query: {expression}. Please check the file number and try again.")
+            arcpy.AddError(f"ERROR: No records returned for trapline {file_num}. Please check the file number and try again.")
+            if arcpy.Exists(temp_query_layer):
+                arcpy.management.Delete(temp_query_layer)
             return
         else:
-            arcpy.AddMessage(f"         Definition query {expression} set for layer: {all_trapline_boundaries_obj}. Records returned: {count}")
+            arcpy.AddMessage(f"         Found {count} record(s) for trapline {file_num}")
 
         # Specify the output file path for the exported feature
         application_trapline_boundary = os.path.join(shapefile_dir, f'{file_num}.shp')
@@ -225,25 +238,19 @@ class TraplineMapGenerationTool:
         # Step 3 - Export the Feature to a Shapefile
         #
         ###########################################################################################################################################
-        # Create a feature layer to select the specific feature
+        arcpy.AddMessage("Step 3 - Exporting to shapefile")
         try:
-            arcpy.management.MakeFeatureLayer(all_trapline_boundaries_obj, "temp_layer") 
-            arcpy.AddMessage("Feature layer created.")
+            arcpy.management.CopyFeatures(temp_query_layer, application_trapline_boundary)
+            arcpy.AddMessage(f"Shapefile created: {application_trapline_boundary}")
         except arcpy.ExecuteError as e:
-            arcpy.AddError(f"MakeFeatureLayer_management error: {e}")
+            arcpy.AddError(f"CopyFeatures error: {e}")
+            if arcpy.Exists(temp_query_layer):
+                arcpy.management.Delete(temp_query_layer)
             return
         
-        # Check if the temporary layer exists
-        if arcpy.Exists("temp_layer"):
-            try:
-                arcpy.management.CopyFeatures("temp_layer", application_trapline_boundary)
-                arcpy.AddMessage("Export process complete.")
-            except arcpy.ExecuteError as e:
-                arcpy.AddError(f"CopyFeatures_management error: {e}")
-                return
-        else:
-            arcpy.AddError("Temporary layer 'temp_layer' does not exist.")
-            return
+        # Clean up temporary query layer
+        if arcpy.Exists(temp_query_layer):
+            arcpy.management.Delete(temp_query_layer)
         
         # Add a new field for the area in hectares if it doesn't already exist
         if AREA_FIELD not in [f.name for f in arcpy.ListFields(application_trapline_boundary)]:
@@ -269,19 +276,21 @@ class TraplineMapGenerationTool:
         
         ##############################################################################################################
         #
-        # Step 4 - Clip the "Trapline Cabins" layer based on the feature layer
+        # Step 4 - Clip and Export Trapline Cabins
         #
         ##############################################################################################################
         arcpy.AddMessage("Step 4 - Clipping Trapline Cabins layer")
         clipped_cabins_output = os.path.join(shapefile_dir, f'{file_num}_Cabins.shp')
         arcpy.AddMessage(f"Output feature path: {clipped_cabins_output}")
 
-        # Clip the "Trapline Cabins" layer based on the feature layer
-        arcpy.analysis.Clip("All Trapline Cabins", application_trapline_boundary, clipped_cabins_output)
-        arcpy.AddMessage(f"Clipping of trapline boundary to Crown Lands layer completed.")
+        # Clip the "Trapline Cabins" layer based on the feature layer (use layer object, not string name)
+        arcpy.analysis.Clip(all_trapline_cabins_obj, application_trapline_boundary, clipped_cabins_output)
+        arcpy.AddMessage(f"Clipping of trapline cabins completed.")
 
         # Initialize Crown_Num_Values to handle cases where field doesn't exist
         Crown_Num_Values = []
+        Crown_Num_Values_String = ""
+        
         # Check if the field exists in the attribute table of the clipped cabins output
         if CROWN_LAND_FIELD not in [f.name for f in arcpy.ListFields(clipped_cabins_output)]:
             arcpy.AddMessage(f"{CROWN_LAND_FIELD} not found in the attribute table.")
@@ -295,39 +304,95 @@ class TraplineMapGenerationTool:
                     if crown_land_value is not None and crown_land_value != "":
                         Crown_Num_Values.append(crown_land_value)
             
-            # Check if any valid Crown Land values were found
-            if not Crown_Num_Values:
-                arcpy.AddMessage("No valid Crown Land values found. Setting default layer name.")
-                # Set a default name if no values found
-                new_layer_name = "Trapline_Cabin_No_Values"
-                all_trapline_cabins_obj.name = new_layer_name
-                arcpy.AddMessage(f"Layer renamed to: {new_layer_name}")
-            else:
-                # Convert the list of Crown Land values to a single string, joined by underscores
-                Crown_Num_Values_String = "_".join(map(str, Crown_Num_Values))
-                
-                # Update the name of the trapline cabin feature layer based on the joined Crown Land values
-                new_layer_name = f"Trapline_Cabin_{Crown_Num_Values_String}"
-                all_trapline_cabins_obj.name = new_layer_name
-                arcpy.AddMessage(f"Layer renamed to: {new_layer_name}")
+            # Remove duplicates and sort
+            Crown_Num_Values = sorted(list(set(Crown_Num_Values)))
             
-            # Apply definition query based on the number of Crown Land values found
-            if len(Crown_Num_Values) == 1:
-                # If there's only one Crown Land value, apply an equality query
-                expression1 = f"{arcpy.AddFieldDelimiters(arcpy.env.workspace, CROWN_LAND_FIELD)} = '{Crown_Num_Values[0]}'"
-                all_trapline_cabins_obj.definitionQuery = expression1
-                arcpy.AddMessage(f"Definition query applied to cabins layer: {expression1}")
-            elif len(Crown_Num_Values) > 1:
-                # If there are multiple Crown Land values, apply an IN query
-                values_string = ', '.join([f"'{val}'" for val in Crown_Num_Values])
-                expression1 = f"{arcpy.AddFieldDelimiters(arcpy.env.workspace, CROWN_LAND_FIELD)} IN ({values_string})"
-                all_trapline_cabins_obj.definitionQuery = expression1
-                arcpy.AddMessage(f"Definition query applied to cabins layer: {expression1}")
+            if Crown_Num_Values:
+                Crown_Num_Values_String = "_".join(map(str, Crown_Num_Values))
+                arcpy.AddMessage(f"Found Crown Land values: {Crown_Num_Values_String}")
         
-        # Rename the boundaries layer
-        all_trapline_boundaries_obj.name = f"{file_num} ({formatted_area})"
-        arcpy.AddMessage(f"Layer renamed to: {file_num} ({formatted_area})")
-
+        ##############################################################################################################
+        #
+        # Step 4a - Replace Data Source for Existing Trapline Cabin Layer
+        #
+        ##############################################################################################################
+        arcpy.AddMessage("Step 4a - Replacing data source for existing trapline cabin layer")
+        
+        # Find layer that starts with "Trapline Cabin" or "Trapline_Cabin_"
+        cabin_target_layer = None
+        
+        for lyr in map_obj.listLayers():
+            if lyr.isFeatureLayer and (lyr.name.startswith("Trapline Cabin") or lyr.name.startswith("Trapline_Cabin_")):
+                cabin_target_layer = lyr
+                arcpy.AddMessage(f"Found target cabin layer: {lyr.name}")
+                break
+        
+        if cabin_target_layer is None:
+            arcpy.AddWarning("WARNING: Could not find a layer starting with 'Trapline Cabin' or 'Trapline_Cabin_'.")
+            arcpy.AddWarning("Please ensure you have a trapline cabin layer in your map to update.")
+            arcpy.AddWarning("Continuing without updating cabin layer data source...")
+        else:
+            try:
+                # Get connection properties from the shapefile
+                new_conn_props = cabin_target_layer.connectionProperties
+                new_conn_props['connection_info']['database'] = os.path.dirname(clipped_cabins_output)
+                new_conn_props['dataset'] = os.path.basename(clipped_cabins_output)
+                
+                # Update the connection properties
+                cabin_target_layer.updateConnectionProperties(cabin_target_layer.connectionProperties, new_conn_props)
+                
+                # Rename the layer based on Crown Land values
+                if Crown_Num_Values_String:
+                    new_cabin_layer_name = f"Trapline_Cabin_{Crown_Num_Values_String}"
+                else:
+                    new_cabin_layer_name = f"Trapline_Cabin_{file_num}"
+                
+                cabin_target_layer.name = new_cabin_layer_name
+                arcpy.AddMessage(f"Successfully updated cabin layer data source and renamed to: {new_cabin_layer_name}")
+                
+            except Exception as e:
+                arcpy.AddError(f"Failed to update cabin layer data source: {e}")
+                arcpy.AddError("Please check that the layer exists and is a valid feature layer.")
+        
+        ##############################################################################################################
+        #
+        # Step 4b - Replace Data Source for Existing Trapline Layer
+        #
+        ##############################################################################################################
+        arcpy.AddMessage("Step 4b - Replacing data source for existing trapline layer")
+        
+        # Find layer that starts with "TR" (e.g., TR0440T001, TR0430T001, etc.)
+        target_layer = None
+        
+        for lyr in map_obj.listLayers():
+            if lyr.isFeatureLayer and lyr.name.startswith("TR"):
+                target_layer = lyr
+                arcpy.AddMessage(f"Found target layer: {lyr.name}")
+                break
+        
+        if target_layer is None:
+            arcpy.AddWarning("WARNING: Could not find a layer starting with 'TR'.")
+            arcpy.AddWarning("Please ensure you have a trapline layer in your map to update.")
+            arcpy.AddWarning("Continuing without updating layer data source...")
+        else:
+            try:
+                # Get connection properties from the shapefile
+                new_conn_props = target_layer.connectionProperties
+                new_conn_props['connection_info']['database'] = os.path.dirname(application_trapline_boundary)
+                new_conn_props['dataset'] = os.path.basename(application_trapline_boundary)
+                
+                # Update the connection properties
+                target_layer.updateConnectionProperties(target_layer.connectionProperties, new_conn_props)
+                
+                # Rename the layer
+                new_layer_name = f"{file_num} ({formatted_area})"
+                target_layer.name = new_layer_name
+                arcpy.AddMessage(f"Successfully updated layer data source and renamed to: {new_layer_name}")
+                
+            except Exception as e:
+                arcpy.AddError(f"Failed to update layer data source: {e}")
+                arcpy.AddError("Please check that the layer exists and is a valid feature layer.")
+        
         # Create a new variable for Crown cabins string (for further operations if needed)
         new_crown_cabins_str = f"{file_num}_Cabins_{Crown_Num_Values_String}" if Crown_Num_Values else "Trapline_Cabin_No_Values"
         arcpy.AddMessage(f"New Crown cabins variable: {new_crown_cabins_str} created.")
@@ -341,13 +406,26 @@ class TraplineMapGenerationTool:
         
         # Zoom to trapline boundary feature and set scale
         arcpy.AddMessage("Step 5 - Zooming to feature and setting scale")
-        zoom_feature_layer = all_trapline_boundaries_obj
+        
+        # Use the updated target layer if found, otherwise skip zoom
+        if target_layer is not None:
+            zoom_feature_layer = target_layer
+        else:
+            # Fallback: create a temporary layer from the shapefile for zooming
+            arcpy.AddMessage("Creating temporary layer for zoom...")
+            zoom_feature_layer = "temp_zoom_layer"
+            arcpy.management.MakeFeatureLayer(application_trapline_boundary, zoom_feature_layer)
+        
         mapframe = layout.listElements('MAPFRAME_ELEMENT', 'Map Frame')[0]
 
         # Select all features and zoom
         arcpy.SelectLayerByAttribute_management(zoom_feature_layer, "NEW_SELECTION", "1=1")
         mapframe.zoomToAllLayers(True)
         arcpy.SelectLayerByAttribute_management(zoom_feature_layer, "CLEAR_SELECTION")
+        
+        # Clean up temporary zoom layer if created
+        if target_layer is None and arcpy.Exists("temp_zoom_layer"):
+            arcpy.management.Delete("temp_zoom_layer")
 
         # Set scale
         mapframe.camera.scale = DEFAULT_SCALE

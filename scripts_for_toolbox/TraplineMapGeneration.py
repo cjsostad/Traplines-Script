@@ -57,7 +57,8 @@ LAYOUT_NAME = 'Layout'
 DEFAULT_SCALE = 250000
 AREA_FIELD = "Area_ha"
 CROWN_LAND_FIELD = "CROWN_LAND"
-TRAPLINE_FIELD = "TRAPLINE_1"
+# TRAPLINE_FIELD = "TRAPLINE_1"
+TRAPLINE_FIELD = "TRAPLINE_AREA_IDENTIFIER"
 SQ_METERS_TO_HECTARES = 10000
 
 # Create or get the feature_layer object from ArcGIS Pro's content pane or the appropriate source
@@ -75,20 +76,7 @@ if not os.path.exists(year_folder):
 else:
     arcpy.AddMessage(f"Using existing year folder: {year_folder}")
 
-# OLD FOLDER STRUCTURE - COMMENTED OUT
-# # Define paths for the directories
-# workspace = os.path.join(year_folder, 'trapline_territories')
-# arcpy.env.workspace = workspace
-# 
-# # Check if trapline_territories folder exists, create if not
-# if not os.path.exists(workspace):
-#     os.makedirs(workspace)
-#     arcpy.AddMessage(f"Created workspace: {workspace}")
-# 
-# kml_dir = os.path.join(workspace, 'Kml')
-# aprx_dir = os.path.join(workspace, 'Aprx')
-# data_dir = os.path.join(workspace, 'Data')
-# pdf_dir = os.path.join(workspace, 'pdf')
+
 
 # Set a temporary workspace for the year folder
 arcpy.env.workspace = year_folder
@@ -97,6 +85,7 @@ map_obj = aprx.listMaps(MAP_NAME)[0]
 layout = aprx.listLayouts(LAYOUT_NAME)[0] 
 all_trapline_cabins_obj = map_obj.listLayers("All Trapline Cabins")[0]
 all_trapline_boundaries_obj = map_obj.listLayers("All Trapline Boundaries")[0]
+
 # Function to create a directory if it doesn't exist
 def create_directory(directory):
     if not os.path.exists(directory):
@@ -105,19 +94,6 @@ def create_directory(directory):
     else:
         arcpy.AddMessage(f"Directory already exists: {directory}")
 
-# OLD FOLDER STRUCTURE CREATION - COMMENTED OUT
-# # Create the main directories
-# create_directory(aprx_dir)
-# create_directory(data_dir)
-# create_directory(pdf_dir)
-# 
-# # Create subdirectories named after the feature in each main directory
-# aprx_subdir = os.path.join(aprx_dir, file_num)
-# data_subdir = os.path.join(data_dir, file_num)
-# pdf_subdir = os.path.join(pdf_dir, file_num)
-# create_directory(aprx_subdir)
-# create_directory(data_subdir)
-# create_directory(pdf_subdir)
 
 # Get user input parameters
 # Parameter 0: GSS Request Number
@@ -156,6 +132,8 @@ arcpy.AddMessage(f"Folder structure created for GSS Request: {gss_request_num}")
 arcpy.AddMessage(f"  KML directory: {kml_dir}")
 arcpy.AddMessage(f"  Shapefile directory: {shapefile_dir}")
 arcpy.AddMessage(f"  Maps directory: {maps_dir}")
+
+
 ################################################################################################################################
 #
 # Step 2 - Create the Application Polygon
@@ -183,6 +161,8 @@ else:
 # Specify the output file path for the exported feature
 application_trapline_boundary = os.path.join(shapefile_dir, f'{file_num}.shp')
 arcpy.AddMessage(f"Output feature path: {application_trapline_boundary}")
+
+
 ###########################################################################################################################################
 #
 # Step 3 - Export the Feature to a Shapefile
@@ -206,6 +186,8 @@ if arcpy.Exists("temp_layer"):
 else:
     arcpy.AddError("Temporary layer 'temp_layer' does not exist.")
     raise SystemExit("Temporary layer not found")
+
+
 # Add a new field for the area in hectares if it doesn't already exist
 if AREA_FIELD not in [f.name for f in arcpy.ListFields(application_trapline_boundary)]:
     arcpy.management.AddField(application_trapline_boundary, AREA_FIELD, "DOUBLE")
@@ -226,6 +208,9 @@ with arcpy.da.UpdateCursor(application_trapline_boundary, ["SHAPE@", AREA_FIELD]
         formatted_area = f"{area_hectares:.2f} ha."
         arcpy.AddMessage(f"Formatted area: {formatted_area}")
 arcpy.AddMessage(f"Area in hectares has been added to the field '{AREA_FIELD}'.")
+
+
+
 ##############################################################################################################
 #
 # Step 4 - Clip the "Trapline Cabins" layer based on the feature layer
