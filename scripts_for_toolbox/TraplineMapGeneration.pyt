@@ -53,7 +53,15 @@ class TraplineMapGenerationTool:
             parameterType="Required",
             direction="Input")
         
-        params = [param0, param1]
+        # Parameter 2: Output Folder (Derived)
+        param2 = arcpy.Parameter(
+            displayName="Output Folder",
+            name="output_folder",
+            datatype="DEFolder",
+            parameterType="Derived",
+            direction="Output")
+        
+        params = [param0, param1, param2]
         return params
 
     def isLicensed(self):
@@ -87,6 +95,9 @@ class TraplineMapGenerationTool:
         # Get parameters
         gss_request_num = parameters[0].valueAsText
         file_num = parameters[1].valueAsText
+        
+        # Initialize progress bar (7 steps total)
+        arcpy.SetProgressor("step", "Processing trapline map...", 0, 7, 1)
         
         # Validate inputs
         if not gss_request_num:
@@ -171,6 +182,13 @@ class TraplineMapGenerationTool:
         except Exception as e:
             arcpy.AddWarning(f"Could not apply definition query to All Trapline Cabins: {e}")
         
+        ################################################################################################################################
+        #
+        # Step 1 - Create Folder Structure
+        #
+        ################################################################################################################################
+        arcpy.SetProgressorLabel("Step 1 of 7: Creating folder structure...")
+        
         # Function to create a directory if it doesn't exist
         def create_directory(directory):
             if not os.path.exists(directory):
@@ -202,12 +220,14 @@ class TraplineMapGenerationTool:
         
         # Add clickable link to open the output directory
         arcpy.AddMessage(f"<a href='file:///{gss_request_dir}'>Click here to open output folder</a>")
+        arcpy.SetProgressorPosition()
         
         ################################################################################################################################
         #
         # Step 2 - Query and Export Trapline Boundary
         #
         #############################################################################################################################
+        arcpy.SetProgressorLabel("Step 2 of 7: Querying trapline boundary from BCGW...")
         arcpy.AddMessage("Step 2 - Querying Trapline Boundary from BCGW")
         
         # Create a temporary layer with definition query (don't modify the original BCGW layer)
@@ -231,6 +251,8 @@ class TraplineMapGenerationTool:
             return
         else:
             arcpy.AddMessage(f"         Found {count} record(s) for trapline {file_num}")
+        
+        arcpy.SetProgressorPosition()
 
         # Specify the output file path for the exported feature
         application_trapline_boundary = os.path.join(shapefile_dir, f'{file_num}.shp')
@@ -241,6 +263,7 @@ class TraplineMapGenerationTool:
         # Step 3 - Export the Feature to a Shapefile
         #
         ###########################################################################################################################################
+        arcpy.SetProgressorLabel("Step 3 of 7: Exporting to shapefile...")
         arcpy.AddMessage("Step 3 - Exporting to shapefile")
         try:
             arcpy.management.CopyFeatures(temp_query_layer, application_trapline_boundary)
@@ -277,11 +300,14 @@ class TraplineMapGenerationTool:
                 arcpy.AddMessage(f"Formatted area: {formatted_area}")
         arcpy.AddMessage(f"Area in hectares has been added to the field '{AREA_FIELD}'.")
         
+        arcpy.SetProgressorPosition()
+        
         ##############################################################################################################
         #
         # Step 4 - Clip and Export Trapline Cabins
         #
         ##############################################################################################################
+        arcpy.SetProgressorLabel("Step 4 of 7: Clipping trapline cabins...")
         arcpy.AddMessage("Step 4 - Clipping Trapline Cabins layer")
         clipped_cabins_output = os.path.join(shapefile_dir, f'{file_num}_Cabins.shp')
         arcpy.AddMessage(f"Output feature path: {clipped_cabins_output}")
@@ -319,6 +345,7 @@ class TraplineMapGenerationTool:
         # Step 4a - Replace Data Source for Existing Trapline Cabin Layer
         #
         ##############################################################################################################
+        arcpy.SetProgressorLabel("Step 4a of 7: Replacing cabin data source...")
         arcpy.AddMessage("Step 4a - Replacing data source for existing trapline cabin layer")
         
         # Find layer that starts with "Trapline Cabin" or "Trapline_Cabin_"
@@ -362,6 +389,7 @@ class TraplineMapGenerationTool:
         # Step 4b - Replace Data Source for Existing Trapline Layer
         #
         ##############################################################################################################
+        arcpy.SetProgressorLabel("Step 4b of 7: Replacing boundary data source...")
         arcpy.AddMessage("Step 4b - Replacing data source for existing trapline layer")
         
         # Find layer that starts with "TR" (e.g., TR0440T001, TR0430T001, etc.)
@@ -399,6 +427,8 @@ class TraplineMapGenerationTool:
         # Create a new variable for Crown cabins string (for further operations if needed)
         new_crown_cabins_str = f"{file_num}_Cabins_{Crown_Num_Values_String}" if Crown_Num_Values else "Trapline_Cabin_No_Values"
         arcpy.AddMessage(f"New Crown cabins variable: {new_crown_cabins_str} created.")
+        
+        arcpy.SetProgressorPosition()
 
         # Update map title text element
         for elm in layout.listElements("TEXT_ELEMENT"):
@@ -408,6 +438,7 @@ class TraplineMapGenerationTool:
                 break
         
         # Zoom to trapline boundary feature and set scale
+        arcpy.SetProgressorLabel("Step 5 of 7: Zooming to feature and setting scale...")
         arcpy.AddMessage("Step 5 - Zooming to feature and setting scale")
         
         # Use the updated target layer if found, otherwise skip zoom
@@ -453,11 +484,14 @@ class TraplineMapGenerationTool:
         mapframe.camera.scale = rounded_scale
         arcpy.AddMessage(f"Zoomed to trapline boundary and set scale to: {rounded_scale}")
         
+        arcpy.SetProgressorPosition()
+        
         ##############################################################################################################
         #
         # Step 6 - Export PDF and save project
         #
         ##############################################################################################################
+        arcpy.SetProgressorLabel("Step 6 of 7: Exporting PDF and saving project...")
         arcpy.AddMessage("Step 6 - Exporting PDF and saving project")
 
         # Generate date string for PDF filename
@@ -485,11 +519,14 @@ class TraplineMapGenerationTool:
             arcpy.AddError(f"Failed to save project: {e}")
             return
         
+        arcpy.SetProgressorPosition()
+        
         ##############################################################################################################
         #
         # Step 7 - Export KML
         #
         ##############################################################################################################
+        arcpy.SetProgressorLabel("Step 7 of 7: Exporting KML...")
         arcpy.AddMessage("Step 7 - Exporting KML")
 
         kml_output = os.path.join(kml_dir, f"{file_num}.kmz")
@@ -528,11 +565,17 @@ class TraplineMapGenerationTool:
         except Exception as e:
             arcpy.AddError(f"Error during KML export: {e}")
         
+        arcpy.SetProgressorPosition()
+        arcpy.ResetProgressor()
+        
         arcpy.AddMessage("----------------------------------------------------")
         arcpy.AddMessage("----------------------------------------------------")
         arcpy.AddMessage("Trapline Boundary Map Automation has been completed")
         arcpy.AddMessage("----------------------------------------------------")
         arcpy.AddMessage("----------------------------------------------------")
         arcpy.AddMessage(f"<a href='file:///{gss_request_dir}'>Click here to open output folder</a>")
+        
+        # Set the derived output parameter
+        parameters[2].value = gss_request_dir
         
         return
