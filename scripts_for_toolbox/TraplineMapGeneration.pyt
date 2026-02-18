@@ -18,6 +18,7 @@ from datetime import datetime
 
 # Import additional tool modules
 from WildlifeFisheriesSetupTool import WildlifeFisheriesSetupTool
+from ReplaceHyperlinksWithRelativeTool import ReplaceHyperlinksWithRelativeTool
 
 
 class Toolbox:
@@ -27,7 +28,7 @@ class Toolbox:
         self.alias = "WildlifeTools"
 
         # List of tool classes associated with this toolbox
-        self.tools = [TraplineMapGenerationTool, WildlifeFisheriesSetupTool]
+        self.tools = [TraplineMapGenerationTool, WildlifeFisheriesSetupTool, ReplaceHyperlinksWithRelativeTool]
 
 
 class TraplineMapGenerationTool:
