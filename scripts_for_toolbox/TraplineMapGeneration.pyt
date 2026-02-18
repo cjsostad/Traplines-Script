@@ -16,15 +16,18 @@ import os
 import re
 from datetime import datetime
 
+# Import additional tool modules
+from WildlifeFisheriesSetupTool import WildlifeFisheriesSetupTool
+
 
 class Toolbox:
     def __init__(self):
         """Define the toolbox (the name of the toolbox is the name of the .pyt file)."""
-        self.label = "Trapline Map Generation Toolbox"
-        self.alias = "TraplineTools"
+        self.label = "Wildlife Authorization Tools"
+        self.alias = "WildlifeTools"
 
         # List of tool classes associated with this toolbox
-        self.tools = [TraplineMapGenerationTool]
+        self.tools = [TraplineMapGenerationTool, WildlifeFisheriesSetupTool]
 
 
 class TraplineMapGenerationTool:
