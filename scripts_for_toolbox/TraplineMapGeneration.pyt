@@ -200,6 +200,9 @@ class TraplineMapGenerationTool:
         arcpy.AddMessage(f"  Shapefile directory: {shapefile_dir}")
         arcpy.AddMessage(f"  Maps directory: {maps_dir}")
         
+        # Add clickable link to open the output directory
+        arcpy.AddMessage(f"<a href='file:///{gss_request_dir}'>Click here to open output folder</a>")
+        
         ################################################################################################################################
         #
         # Step 2 - Query and Export Trapline Boundary
@@ -418,18 +421,37 @@ class TraplineMapGenerationTool:
         
         mapframe = layout.listElements('MAPFRAME_ELEMENT', 'Map Frame')[0]
 
-        # Select all features and zoom
+        # Select all features in the trapline boundary layer
         arcpy.SelectLayerByAttribute_management(zoom_feature_layer, "NEW_SELECTION", "1=1")
-        mapframe.zoomToAllLayers(True)
+        
+        # Get the extent of just the selected features
+        desc = arcpy.Describe(zoom_feature_layer)
+        extent = desc.extent
+        
+        # Expand the extent by 10% in all directions (pan out)
+        x_buffer = (extent.XMax - extent.XMin) * 0.10
+        y_buffer = (extent.YMax - extent.YMin) * 0.10
+        
+        extent.XMin -= x_buffer
+        extent.XMax += x_buffer
+        extent.YMin -= y_buffer
+        extent.YMax += y_buffer
+        
+        # Set the camera to the expanded extent
+        mapframe.camera.setExtent(extent)
+        
+        # Clear selection
         arcpy.SelectLayerByAttribute_management(zoom_feature_layer, "CLEAR_SELECTION")
         
         # Clean up temporary zoom layer if created
         if target_layer is None and arcpy.Exists("temp_zoom_layer"):
             arcpy.management.Delete("temp_zoom_layer")
 
-        # Set scale
-        mapframe.camera.scale = DEFAULT_SCALE
-        arcpy.AddMessage(f"Zoomed to feature and set scale to: {mapframe.camera.scale}")
+        # Round scale up to nearest 5000
+        current_scale = mapframe.camera.scale
+        rounded_scale = ((int(current_scale) + 4999) // 5000) * 5000
+        mapframe.camera.scale = rounded_scale
+        arcpy.AddMessage(f"Zoomed to trapline boundary and set scale to: {rounded_scale}")
         
         ##############################################################################################################
         #
@@ -511,5 +533,6 @@ class TraplineMapGenerationTool:
         arcpy.AddMessage("Trapline Boundary Map Automation has been completed")
         arcpy.AddMessage("----------------------------------------------------")
         arcpy.AddMessage("----------------------------------------------------")
+        arcpy.AddMessage(f"<a href='file:///{gss_request_dir}'>Click here to open output folder</a>")
         
         return
