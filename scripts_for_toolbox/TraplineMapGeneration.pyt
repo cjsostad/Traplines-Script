@@ -21,6 +21,116 @@ from WildlifeFisheriesSetupTool import WildlifeFisheriesSetupTool
 from ReplaceHyperlinksWithRelativeTool import ReplaceHyperlinksWithRelativeTool
 
 
+# Helper Functions
+def get_layer_from_map(map_obj, layer_name):
+    """Get a layer from the map with error handling."""
+    try:
+        layer_list = map_obj.listLayers(layer_name)
+        if not layer_list:
+            arcpy.AddError(f"ERROR: Layer '{layer_name}' not found in the map.")
+            arcpy.AddError("Please check that:")
+            arcpy.AddError(f"  1. The layer exists in your map")
+            arcpy.AddError(f"  2. The layer name is exactly '{layer_name}' (case-sensitive)")
+            arcpy.AddError(f"  3. The layer has not been renamed by a previous run of this tool")
+            return None
+        return layer_list[0]
+    except Exception as e:
+        arcpy.AddError(f"ERROR: Failed to access '{layer_name}' layer: {e}")
+        return None
+
+
+def apply_definition_query(layer, query):
+    """Apply a definition query to a layer with error handling."""
+    try:
+        layer.definitionQuery = query
+        arcpy.AddMessage(f"Applied filter to {layer.name}: {query}")
+        return True
+    except Exception as e:
+        arcpy.AddWarning(f"Could not apply definition query to {layer.name}: {e}")
+        return False
+
+
+def create_directory(directory):
+    """Create a directory if it doesn't exist."""
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        arcpy.AddMessage(f"Directory created: {directory}")
+    else:
+        arcpy.AddMessage(f"Directory already exists: {directory}")
+
+
+def calculate_area_in_hectares(geometry, sq_meters_to_hectares=10000):
+    """Calculate area in hectares from geometry."""
+    return geometry.area / sq_meters_to_hectares
+
+
+def update_layer_data_source(layer, shapefile_path, new_name):
+    """Update layer data source and rename it."""
+    try:
+        new_conn_props = layer.connectionProperties
+        new_conn_props['connection_info']['database'] = os.path.dirname(shapefile_path)
+        new_conn_props['dataset'] = os.path.basename(shapefile_path)
+        layer.updateConnectionProperties(layer.connectionProperties, new_conn_props)
+        layer.name = new_name
+        arcpy.AddMessage(f"Successfully updated layer data source and renamed to: {new_name}")
+        return True
+    except Exception as e:
+        arcpy.AddError(f"Failed to update layer data source: {e}")
+        return False
+
+
+def get_buffered_extent(layer, buffer_percent=0.10):
+    """Get the extent of a layer with a buffer percentage."""
+    arcpy.SelectLayerByAttribute_management(layer, "NEW_SELECTION", "1=1")
+    desc = arcpy.Describe(layer)
+    extent = desc.extent
+    
+    x_buffer = (extent.XMax - extent.XMin) * buffer_percent
+    y_buffer = (extent.YMax - extent.YMin) * buffer_percent
+    
+    extent.XMin -= x_buffer
+    extent.XMax += x_buffer
+    extent.YMin -= y_buffer
+    extent.YMax += y_buffer
+    
+    arcpy.SelectLayerByAttribute_management(layer, "CLEAR_SELECTION")
+    return extent
+
+
+def round_scale_to_nearest(scale, increment=5000):
+    """Round scale up to the nearest increment."""
+    return ((int(scale) + increment - 1) // increment) * increment
+
+
+def export_to_kml(input_feature, output_kml):
+    """Export feature to KML with error handling."""
+    try:
+        if not arcpy.Exists(input_feature):
+            arcpy.AddError(f"Feature does not exist: {input_feature}")
+            return False
+        
+        feature_count = int(arcpy.management.GetCount(input_feature)[0])
+        arcpy.AddMessage(f"Feature count: {feature_count}")
+        
+        if feature_count == 0:
+            arcpy.AddWarning("Feature has no records, KML not created")
+            return False
+        
+        if arcpy.Exists(output_kml):
+            arcpy.management.Delete(output_kml)
+        
+        temp_layer = "temp_kml_export"
+        arcpy.management.MakeFeatureLayer(input_feature, temp_layer)
+        arcpy.conversion.LayerToKML(temp_layer, output_kml, layer_output_scale=1)
+        arcpy.management.Delete(temp_layer)
+        
+        arcpy.AddMessage(f"KML created successfully: {output_kml}")
+        return True
+    except Exception as e:
+        arcpy.AddError(f"Error during KML export: {e}")
+        return False
+
+
 class Toolbox:
     def __init__(self):
         """Define the toolbox (the name of the toolbox is the name of the .pyt file)."""
@@ -149,42 +259,18 @@ class TraplineMapGenerationTool:
             arcpy.AddError(f"ERROR: Failed to access layout: {e}")
             return
         
-        # Get layer objects with specific error handling
-        try:
-            trapline_boundaries_list = map_obj.listLayers("All Trapline Boundaries")
-            if not trapline_boundaries_list:
-                arcpy.AddError("ERROR: Layer 'All Trapline Boundaries' not found in the map.")
-                arcpy.AddError("Please check that:")
-                arcpy.AddError("  1. The layer exists in your map")
-                arcpy.AddError("  2. The layer name is exactly 'All Trapline Boundaries' (case-sensitive)")
-                arcpy.AddError("  3. The layer has not been renamed by a previous run of this tool")
-                return
-            all_trapline_boundaries_obj = trapline_boundaries_list[0]
-        except Exception as e:
-            arcpy.AddError(f"ERROR: Failed to access 'All Trapline Boundaries' layer: {e}")
+        # Get layer objects
+        all_trapline_boundaries_obj = get_layer_from_map(map_obj, "All Trapline Boundaries")
+        if not all_trapline_boundaries_obj:
             return
         
-        try:
-            trapline_cabins_list = map_obj.listLayers("All Trapline Cabins")
-            if not trapline_cabins_list:
-                arcpy.AddError("ERROR: Layer 'All Trapline Cabins' not found in the map.")
-                arcpy.AddError("Please check that:")
-                arcpy.AddError("  1. The layer exists in your map")
-                arcpy.AddError("  2. The layer name is exactly 'All Trapline Cabins' (case-sensitive)")
-                arcpy.AddError("  3. The layer has not been renamed by a previous run of this tool")
-                return
-            all_trapline_cabins_obj = trapline_cabins_list[0]
-        except Exception as e:
-            arcpy.AddError(f"ERROR: Failed to access 'All Trapline Cabins' layer: {e}")
+        all_trapline_cabins_obj = get_layer_from_map(map_obj, "All Trapline Cabins")
+        if not all_trapline_cabins_obj:
             return
         
-        # Apply permanent definition query to All Trapline Cabins BCGW layer
-        try:
-            cabin_filter = "TENURE_SUBPURPOSE = 'TRAPLINE CABIN'"
-            all_trapline_cabins_obj.definitionQuery = cabin_filter
-            arcpy.AddMessage(f"Applied filter to All Trapline Cabins: {cabin_filter}")
-        except Exception as e:
-            arcpy.AddWarning(f"Could not apply definition query to All Trapline Cabins: {e}")
+        # Apply definition query to cabin layer
+        cabin_filter = "TENURE_SUBPURPOSE = 'TRAPLINE CABIN'"
+        apply_definition_query(all_trapline_cabins_obj, cabin_filter)
         
         ################################################################################################################################
         #
@@ -193,14 +279,6 @@ class TraplineMapGenerationTool:
         ################################################################################################################################
         arcpy.SetProgressorLabel("Step 1 of 7: Creating folder structure...")
         
-        # Function to create a directory if it doesn't exist
-        def create_directory(directory):
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-                arcpy.AddMessage(f"Directory created: {directory}")
-            else:
-                arcpy.AddMessage(f"Directory already exists: {directory}")
-
         # Create NEW folder structure based on GSS Request Number
         traplines_base = os.path.join(year_folder, 'traplines')
         gss_request_dir = os.path.join(traplines_base, gss_request_num)
@@ -287,17 +365,12 @@ class TraplineMapGenerationTool:
             arcpy.management.AddField(application_trapline_boundary, AREA_FIELD, "DOUBLE")
             arcpy.AddMessage(f"Field '{AREA_FIELD}' added to the feature class.")
         
-        # Define the function to calculate area in hectares
-        def calculate_area_in_hectares(geometry):
-            area_sq_meters = geometry.area
-            return area_sq_meters / SQ_METERS_TO_HECTARES
-        
         # Calculate the area for each polygon and update the new field
         arcpy.AddMessage("Calculating area in hectares...")
         formatted_area = ""
         with arcpy.da.UpdateCursor(application_trapline_boundary, ["SHAPE@", AREA_FIELD]) as cursor:
             for row in cursor:
-                area_hectares = calculate_area_in_hectares(row[0])
+                area_hectares = calculate_area_in_hectares(row[0], SQ_METERS_TO_HECTARES)
                 row[1] = area_hectares
                 cursor.updateRow(row)
                 formatted_area = f"{area_hectares:.2f} ha."
@@ -366,27 +439,13 @@ class TraplineMapGenerationTool:
             arcpy.AddWarning("Please ensure you have a trapline cabin layer in your map to update.")
             arcpy.AddWarning("Continuing without updating cabin layer data source...")
         else:
-            try:
-                # Get connection properties from the shapefile
-                new_conn_props = cabin_target_layer.connectionProperties
-                new_conn_props['connection_info']['database'] = os.path.dirname(clipped_cabins_output)
-                new_conn_props['dataset'] = os.path.basename(clipped_cabins_output)
-                
-                # Update the connection properties
-                cabin_target_layer.updateConnectionProperties(cabin_target_layer.connectionProperties, new_conn_props)
-                
-                # Rename the layer based on Crown Land values
-                if Crown_Num_Values_String:
-                    new_cabin_layer_name = f"Trapline_Cabin_{Crown_Num_Values_String}"
-                else:
-                    new_cabin_layer_name = f"Trapline_Cabin_{file_num}"
-                
-                cabin_target_layer.name = new_cabin_layer_name
-                arcpy.AddMessage(f"Successfully updated cabin layer data source and renamed to: {new_cabin_layer_name}")
-                
-            except Exception as e:
-                arcpy.AddError(f"Failed to update cabin layer data source: {e}")
-                arcpy.AddError("Please check that the layer exists and is a valid feature layer.")
+            # Rename the layer based on Crown Land values
+            if Crown_Num_Values_String:
+                new_cabin_layer_name = f"Trapline_Cabin_{Crown_Num_Values_String}"
+            else:
+                new_cabin_layer_name = f"Trapline_Cabin_{file_num}"
+            
+            update_layer_data_source(cabin_target_layer, clipped_cabins_output, new_cabin_layer_name)
         
         ##############################################################################################################
         #
@@ -410,23 +469,8 @@ class TraplineMapGenerationTool:
             arcpy.AddWarning("Please ensure you have a trapline layer in your map to update.")
             arcpy.AddWarning("Continuing without updating layer data source...")
         else:
-            try:
-                # Get connection properties from the shapefile
-                new_conn_props = target_layer.connectionProperties
-                new_conn_props['connection_info']['database'] = os.path.dirname(application_trapline_boundary)
-                new_conn_props['dataset'] = os.path.basename(application_trapline_boundary)
-                
-                # Update the connection properties
-                target_layer.updateConnectionProperties(target_layer.connectionProperties, new_conn_props)
-                
-                # Rename the layer
-                new_layer_name = f"{file_num} ({formatted_area})"
-                target_layer.name = new_layer_name
-                arcpy.AddMessage(f"Successfully updated layer data source and renamed to: {new_layer_name}")
-                
-            except Exception as e:
-                arcpy.AddError(f"Failed to update layer data source: {e}")
-                arcpy.AddError("Please check that the layer exists and is a valid feature layer.")
+            new_layer_name = f"{file_num} ({formatted_area})"
+            update_layer_data_source(target_layer, application_trapline_boundary, new_layer_name)
         
         # Create a new variable for Crown cabins string (for further operations if needed)
         new_crown_cabins_str = f"{file_num}_Cabins_{Crown_Num_Values_String}" if Crown_Num_Values else "Trapline_Cabin_No_Values"
@@ -456,35 +500,16 @@ class TraplineMapGenerationTool:
         
         mapframe = layout.listElements('MAPFRAME_ELEMENT', 'Map Frame')[0]
 
-        # Select all features in the trapline boundary layer
-        arcpy.SelectLayerByAttribute_management(zoom_feature_layer, "NEW_SELECTION", "1=1")
-        
-        # Get the extent of just the selected features
-        desc = arcpy.Describe(zoom_feature_layer)
-        extent = desc.extent
-        
-        # Expand the extent by 10% in all directions (pan out)
-        x_buffer = (extent.XMax - extent.XMin) * 0.10
-        y_buffer = (extent.YMax - extent.YMin) * 0.10
-        
-        extent.XMin -= x_buffer
-        extent.XMax += x_buffer
-        extent.YMin -= y_buffer
-        extent.YMax += y_buffer
-        
-        # Set the camera to the expanded extent
+        # Get buffered extent and set camera
+        extent = get_buffered_extent(zoom_feature_layer, buffer_percent=0.10)
         mapframe.camera.setExtent(extent)
-        
-        # Clear selection
-        arcpy.SelectLayerByAttribute_management(zoom_feature_layer, "CLEAR_SELECTION")
         
         # Clean up temporary zoom layer if created
         if target_layer is None and arcpy.Exists("temp_zoom_layer"):
             arcpy.management.Delete("temp_zoom_layer")
 
         # Round scale up to nearest 5000
-        current_scale = mapframe.camera.scale
-        rounded_scale = ((int(current_scale) + 4999) // 5000) * 5000
+        rounded_scale = round_scale_to_nearest(mapframe.camera.scale, increment=5000)
         mapframe.camera.scale = rounded_scale
         arcpy.AddMessage(f"Zoomed to trapline boundary and set scale to: {rounded_scale}")
         
@@ -534,40 +559,7 @@ class TraplineMapGenerationTool:
         arcpy.AddMessage("Step 7 - Exporting KML")
 
         kml_output = os.path.join(kml_dir, f"{file_num}.kmz")
-
-        # Export KML using the shapefile directly instead of layer reference
-        try:
-            # Check if shapefile exists and has features
-            if arcpy.Exists(application_trapline_boundary):
-                feature_count = int(arcpy.management.GetCount(application_trapline_boundary)[0])
-                arcpy.AddMessage(f"Shapefile feature count: {feature_count}")
-                
-                if feature_count > 0:
-                    # Delete existing KML if it exists
-                    if arcpy.Exists(kml_output):
-                        arcpy.management.Delete(kml_output)
-                    
-                    # Create a temporary layer from the shapefile for KML conversion
-                    temp_kml_layer = "temp_kml_layer"
-                    arcpy.management.MakeFeatureLayer(application_trapline_boundary, temp_kml_layer)
-                    
-                    # Export to KML
-                    arcpy.conversion.LayerToKML(temp_kml_layer, kml_output, layer_output_scale=1)
-                    arcpy.AddMessage(f"KML created successfully: {kml_output}")
-                    
-                    # Clean up temporary layer
-                    if arcpy.Exists(temp_kml_layer):
-                        arcpy.management.Delete(temp_kml_layer)
-                else:
-                    arcpy.AddWarning(f"Shapefile has no features, KML not created")
-            else:
-                arcpy.AddError(f"Shapefile does not exist: {application_trapline_boundary}")
-                
-        except arcpy.ExecuteError as e:
-            arcpy.AddError(f"ArcPy error during KML export: {e}")
-            arcpy.AddError(arcpy.GetMessages())
-        except Exception as e:
-            arcpy.AddError(f"Error during KML export: {e}")
+        export_to_kml(application_trapline_boundary, kml_output)
         
         arcpy.SetProgressorPosition()
         arcpy.ResetProgressor()
