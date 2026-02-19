@@ -43,7 +43,7 @@ Automates the creation of trapline maps by querying BCGW data, creating shapefil
 **Spatial Clip Operation:**
 - Uses trapline boundary shapefile as clip feature
 - Clips all cabin features from BCGW "All Trapline Cabins" layer
-- Output: `{trapline_num}_Cabins.shp` with all cabins inside boundary
+- Output: `{trapline_num} Cabins.shp` with all cabins inside boundary
 
 **Crown Land Attribution:**
 - Reads `CROWN_LAND` field from each clipped cabin feature
@@ -51,9 +51,9 @@ Automates the creation of trapline maps by querying BCGW data, creating shapefil
 - Sorts and deduplicates values (e.g., CL123, CL456, CL789)
 
 **Replace Cabin Layer Data Source:**
-- Searches map for existing layer starting with "Trapline Cabin" or "Trapline_Cabin_"
+- Searches map for existing layer starting with "Trapline Cabin"
 - Updates that layer's connection to point to new clipped shapefile
-- Renames layer: `Trapline_Cabin_{Crown_Land_Values}` (preserves symbology)
+- Renames layer: `Trapline Cabin {Crown_Land_Values}` (preserves symbology)
 - If no cabins found, uses trapline number as fallback name
 
 ---
@@ -142,7 +142,7 @@ Automates the creation of trapline maps by querying BCGW data, creating shapefil
 wildlife\{year}\traplines\{GSS_Request_Number}\
 ├── shapefile\
 │   ├── {trapline_num}.shp (+ associated files)
-│   └── {trapline_num}_Cabins.shp (+ associated files)
+│   └── {trapline_num} Cabins.shp (+ associated files)
 ├── maps\
 │   ├── Trapline_{trapline_num}_{YYYYMMDD}.pdf
 │   └── {trapline_num}.aprx

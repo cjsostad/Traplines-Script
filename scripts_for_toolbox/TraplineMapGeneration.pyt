@@ -4,12 +4,22 @@ Description:
 This script creates a trapline boundary feature layer and KML by way of user input as GSS Request Number and Trapline Number,
 along with any associated Crown Land File(s) with Trapline Cabin features.
 
-Author:  Ozra (Sunny) Rahimi, Evan Breton, Modified by cjsostad
-         Ministry of Forests, Lands, Natural Resource Operations
-           and Rural Development
+Author:  Ozra (Sunny) Rahimi, Evan Breton, 
+Modified in  2026 by cjsostad
+         WLRS
       
 Usage Note:  This toolbox will work with the Temp_Trapline_Master template in ArcGIS Pro
-Version 2.0
+
+Recent Updates (v2.1):
+- Refactored code with functions for improved maintainability
+- All output files and layer names now use spaces instead of underscores (e.g., "TR0440T001 Cabins.shp")
+- Simplified cabin layer search to match "Trapline Cabin" naming convention
+- Script now looks for past trapline cabin layers that start with "Trapline Cabin" and updates the first match it finds, rather than relying on a specific file number in the name
+- All Trapline Cabins and All Trapline Boundary layers are not directly linked to the BCGW and receive updates
+- previous version relied on shapefiles in a folder
+- Creates a new folder structure for each GSS Request Number under the year folder, with subfolders for KML, shapefile, and maps
+- Improved pdf naming convention to include date and use spaces instead of underscores
+Version 2.1
 '''
 import arcpy
 import os
@@ -386,7 +396,7 @@ class TraplineMapGenerationTool:
         ##############################################################################################################
         arcpy.SetProgressorLabel("Step 4 of 7: Clipping trapline cabins...")
         arcpy.AddMessage("Step 4 - Clipping Trapline Cabins layer")
-        clipped_cabins_output = os.path.join(shapefile_dir, f'{file_num}_Cabins.shp')
+        clipped_cabins_output = os.path.join(shapefile_dir, f'{file_num} Cabins.shp')
         arcpy.AddMessage(f"Output feature path: {clipped_cabins_output}")
 
         # Clip the "Trapline Cabins" layer based on the feature layer (use layer object, not string name)
@@ -425,25 +435,25 @@ class TraplineMapGenerationTool:
         arcpy.SetProgressorLabel("Step 4a of 7: Replacing cabin data source...")
         arcpy.AddMessage("Step 4a - Replacing data source for existing trapline cabin layer")
         
-        # Find layer that starts with "Trapline Cabin" or "Trapline_Cabin_"
+        # Find layer that starts with "Trapline Cabin"
         cabin_target_layer = None
         
         for lyr in map_obj.listLayers():
-            if lyr.isFeatureLayer and (lyr.name.startswith("Trapline Cabin") or lyr.name.startswith("Trapline_Cabin_")):
+            if lyr.isFeatureLayer and lyr.name.startswith("Trapline Cabin"):
                 cabin_target_layer = lyr
                 arcpy.AddMessage(f"Found target cabin layer: {lyr.name}")
                 break
         
         if cabin_target_layer is None:
-            arcpy.AddWarning("WARNING: Could not find a layer starting with 'Trapline Cabin' or 'Trapline_Cabin_'.")
+            arcpy.AddWarning("WARNING: Could not find a layer starting with 'Trapline Cabin'.")
             arcpy.AddWarning("Please ensure you have a trapline cabin layer in your map to update.")
             arcpy.AddWarning("Continuing without updating cabin layer data source...")
         else:
             # Rename the layer based on Crown Land values
             if Crown_Num_Values_String:
-                new_cabin_layer_name = f"Trapline_Cabin_{Crown_Num_Values_String}"
+                new_cabin_layer_name = f"Trapline Cabin {Crown_Num_Values_String}"
             else:
-                new_cabin_layer_name = f"Trapline_Cabin_{file_num}"
+                new_cabin_layer_name = f"Trapline Cabin {file_num}"
             
             update_layer_data_source(cabin_target_layer, clipped_cabins_output, new_cabin_layer_name)
         
@@ -473,7 +483,7 @@ class TraplineMapGenerationTool:
             update_layer_data_source(target_layer, application_trapline_boundary, new_layer_name)
         
         # Create a new variable for Crown cabins string (for further operations if needed)
-        new_crown_cabins_str = f"{file_num}_Cabins_{Crown_Num_Values_String}" if Crown_Num_Values else "Trapline_Cabin_No_Values"
+        new_crown_cabins_str = f"{file_num} Cabins {Crown_Num_Values_String}" if Crown_Num_Values else "Trapline Cabin No Values"
         arcpy.AddMessage(f"New Crown cabins variable: {new_crown_cabins_str} created.")
         
         arcpy.SetProgressorPosition()
